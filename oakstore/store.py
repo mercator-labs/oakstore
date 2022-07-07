@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-import operator
 import os
 import pickle
 from datetime import datetime
 from pathlib import Path
-from typing import cast
 from typing import NamedTuple
 
 import dask.dataframe as dd
@@ -123,6 +121,7 @@ class Store:
         self,
         collection: str,
         item: str,
+        *,
         data: pd.DataFrame,
         extend: bool = False,
     ) -> None:
@@ -146,6 +145,7 @@ class Store:
         self,
         collection: str,
         item: str,
+        *,
         data: pd.DataFrame,
     ) -> None:
         data = self._to_internal_type(data)
@@ -175,6 +175,7 @@ class Store:
         self,
         collection: str,
         item: str,
+        *,
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> dd.DataFrame:
