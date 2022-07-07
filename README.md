@@ -10,10 +10,10 @@ import pandas as pd
 from oakstore import Store
 from datetime import datetime
 
-store = Store(base_path='./data')
-
-df = pd.DataFrame(...)  # dataframe with timestamp as index
 schema = {'a': float, 'b': float, 'c': int}  # and columns according to this schema
+store = Store(base_path='./data', cols=schema)
+
+df = pd.DataFrame(...)  # dataframe with timestamp as index and columns according to schema
 
 # inital write
 store.write('SOME','KEY', data=df)
