@@ -40,27 +40,32 @@ def test_create_store(temp_dir):
         column_schema=_DEFAULT_COLUMN_SCHEMA,
     )
     assert base_path.is_dir()
+    assert (base_path / _ITEMS_DIR).is_dir()
     assert (base_path / 'metadata.pkl').is_file()
 
 
 def test_write(store, msft_data):
-    store.write('MSFT', data=msft_data)
-    assert (store._base_path / _ITEMS_DIR / 'MSFT').exists()
-    assert (store.query('MSFT') == msft_data).all
+    store['MSFT'] = msft_data
+    assert (store._items_path / 'MSFT').exists()
+    assert (store['MSFT'][:] == msft_data).all
 
 
 def test_query(store, msft_data):
-    store.write('MSFT', data=msft_data)
+    store['MSFT'] = msft_data
 
     # these should exist
-    assert not store.query('MSFT', start=datetime(2000, 1, 1)).empty
-    assert not store.query('MSFT', end=datetime(2000, 1, 1)).empty
-    assert not store.query(
-        'MSFT', start=datetime(2000, 1, 1), end=datetime(2020, 1, 1)
-    ).empty
+    assert not store['MSFT'][datetime(2000, 1, 1) :].empty
+    assert not store['MSFT'][: datetime(2000, 1, 1)].empty
+    assert not store['MSFT'][datetime(2000, 1, 1) : datetime(2020, 1, 1)].empty
 
     # doesnt exist
-    assert store.query('MSFT', start=datetime(2100, 1, 1)).empty
+    assert store['MSFT'][datetime(2100, 1, 1) :].empty
+
+
+def test_append(store, msft_data):
+    store['MSFT'] = msft_data.iloc[:10]
+    store['MSFT'] += msft_data
+    assert (store['MSFT'][:] == msft_data).all
 
 
 @pytest.mark.parametrize(
@@ -74,4 +79,4 @@ def test_query(store, msft_data):
 )
 def test_invalid_key(store, msft_data, key, exc):
     with exc:
-        store.write(key, data=msft_data)
+        store[key] = msft_data

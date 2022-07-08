@@ -5,6 +5,10 @@
 
 highspeed timeseries pandas dataframe database
 
+## usage
+
+here is a quick rundown of things you can do with oakstore
+
 ```python
 >>> import pandas as pd
 >>> from oakstore import Store
@@ -12,8 +16,8 @@ highspeed timeseries pandas dataframe database
 
 >>> store = Store(base_path='./data')
 
-# OHLC dataframe
->>> df = pd.DataFrame(...)  # index must be datetime, other colums can be custom by specifying cols in Store(cols=...)
+# lets load some end of day OHLCV data, custom dataschema is also supported
+>>> df = pd.DataFrame(...)
 >>> df
                   OPEN        HIGH         LOW       CLOSE      VOLUME
 DATE
@@ -32,12 +36,23 @@ DATE
 [9155 rows x 5 columns]
 
 >>> # inital write
->>> store.write('KEY', data=df)
+>>> store['KEY'] = df
 
->>> df = store.query('KEY')  # get full history
->>> # or query depending on timestamp index
->>> df = store.query('KEY', start=datetime(2020, 1, 1), end=datetime(2021, 1, 1))
+# access full history
+>>> df = store['KEY'][:]
+# or only a slice, you can slice billions of rows with this
+>>> df = store['KEY'][datetime(2020, 1, 1) : datetime(2021, 1, 1)]
 
 >>> # appending (this will only append new data and will not overwrite old data, drops any duplicates)
->>> store.append('KEY', data=df)
+>>> store['KEY'] += df
 ```
+
+## install
+
+```
+pip install git+ssh@github.com/mercator-labs/oakstore
+```
+
+### dependencies
+
+you will also have to install [`snappy`](https://github.com/andrix/python-snappy#build--install), best just follow their installation guide.
