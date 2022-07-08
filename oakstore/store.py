@@ -24,7 +24,7 @@ _DEFAULT_COLUMN_SCHEMA = {
     'VOLUME': int,
 }
 _DEFAULT_CHUNK_SIZE = 1_000_000
-_KEY_REGEX = re.compile(r'^[-a-zA-Z0-9_]+\Z')
+_KEY_REGEX = re.compile(r'^[-a-zA-Z0-9_.]+\Z')
 _ITEMS_DIR = 'items'
 
 
