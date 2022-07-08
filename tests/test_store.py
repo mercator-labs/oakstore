@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -9,7 +10,9 @@ import pytest
 from oakstore import Store
 from oakstore.store import _DEFAULT_COLUMN_SCHEMA
 from oakstore.store import _DEFAULT_INDEX_NAME
+from oakstore.store import _ITEMS_DIR
 from oakstore.store import _MetaData
+from oakstore.store import ItemKeyError
 from testing.yfinance import get_msft
 
 
@@ -41,20 +44,34 @@ def test_create_store(temp_dir):
 
 
 def test_write(store, msft_data):
-    store.write('TEST', 'MSFT', data=msft_data)
-    assert (store._base_path / 'TEST' / 'MSFT').exists()
-    assert (store.query('TEST', 'MSFT') == msft_data).all
+    store.write('MSFT', data=msft_data)
+    assert (store._base_path / _ITEMS_DIR / 'MSFT').exists()
+    assert (store.query('MSFT') == msft_data).all
 
 
 def test_query(store, msft_data):
-    store.write('TEST', 'MSFT', data=msft_data)
+    store.write('MSFT', data=msft_data)
 
     # these should exist
-    assert not store.query('TEST', 'MSFT', start=datetime(2000, 1, 1)).empty
-    assert not store.query('TEST', 'MSFT', end=datetime(2000, 1, 1)).empty
+    assert not store.query('MSFT', start=datetime(2000, 1, 1)).empty
+    assert not store.query('MSFT', end=datetime(2000, 1, 1)).empty
     assert not store.query(
-        'TEST', 'MSFT', start=datetime(2000, 1, 1), end=datetime(2020, 1, 1)
+        'MSFT', start=datetime(2000, 1, 1), end=datetime(2020, 1, 1)
     ).empty
 
     # doesnt exist
-    assert store.query('TEST', 'MSFT', start=datetime(2100, 1, 1)).empty
+    assert store.query('MSFT', start=datetime(2100, 1, 1)).empty
+
+
+@pytest.mark.parametrize(
+    ('key', 'exc'),
+    [
+        pytest.param('MSFT', nullcontext(), id='valid'),
+        pytest.param('foo bar', pytest.raises(ItemKeyError), id='spaces'),
+        pytest.param('*foo', pytest.raises(ItemKeyError), id='star'),
+        pytest.param('#foo', pytest.raises(ItemKeyError), id='hashtag'),
+    ],
+)
+def test_invalid_key(store, msft_data, key, exc):
+    with exc:
+        store.write(key, data=msft_data)

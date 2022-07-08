@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import pickle
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -23,6 +24,8 @@ _DEFAULT_COLUMN_SCHEMA = {
     'VOLUME': int,
 }
 _DEFAULT_CHUNK_SIZE = 1_000_000
+_KEY_REGEX = re.compile(r'^[-a-zA-Z0-9_]+\Z')
+_ITEMS_DIR = 'items'
 
 
 class _MetaData(NamedTuple):
@@ -35,6 +38,10 @@ class OakStoreError(Exception):
 
 
 class SchemaError(OakStoreError):
+    ...
+
+
+class ItemKeyError(OakStoreError):
     ...
 
 
@@ -132,43 +139,33 @@ class Store:
             return data
         return data.compute()
 
-    def _get_or_create_collection_path(
-        self, *, collection: str, create: bool = False
-    ) -> Path:
-        collection_path = self._base_path / collection.upper()
-        if create and not collection_path.exists():
-            collection_path.mkdir(parents=True)
-        return collection_path
+    @staticmethod
+    def _validate_key(key: str) -> bool:
+        return _KEY_REGEX.match(key) is not None
 
-    def _get_item_path(
-        self, *, collection: str, item: str, create: bool = False
-    ) -> Path:
-        collection_path = self._get_or_create_collection_path(
-            collection=collection, create=create
-        )
-        item_path = collection_path / item.upper()
+    def _get_item_path(self, *, key: str, create: bool = False) -> Path:
+        if not self._validate_key(key):
+            raise ItemKeyError(f'invalid key {key.upper()}')
+
+        item_path = self._base_path / _ITEMS_DIR / key.upper()
         if create and not item_path.exists():
             item_path.mkdir(parents=True)
         return item_path
 
     def write(
         self,
-        collection: str,
-        item: str,
+        key: str,
         *,
         data: pd.DataFrame,
         extend: bool = False,
     ) -> None:
-        ddf = self._to_internal_type(data=data)
-
-        item_path = self._get_item_path(collection=collection, item=item, create=False)
+        item_path = self._get_item_path(key=key, create=False)
         if not extend and item_path.exists():
-            raise ValueError(
-                f'item {item.upper()} already exists in collection {collection.upper()}'
-            )
+            raise ValueError(f'key={key.upper()} already exists')
 
+        ddf = self._to_internal_type(data=data)
         ddf.to_parquet(
-            self._get_item_path(collection=collection, item=item, create=True),
+            self._get_item_path(key=key, create=True),
             engine='pyarrow',
             compression='snappy',
             write_index=True,
@@ -176,20 +173,15 @@ class Store:
 
     def append(
         self,
-        collection: str,
-        item: str,
+        key: str,
         *,
         data: pd.DataFrame,
     ) -> None:
-        ddf = self._to_internal_type(data=data)
-
-        item_path = self._get_item_path(collection=collection, item=item, create=False)
+        item_path = self._get_item_path(key=key, create=False)
         if not item_path.exists():
-            raise ValueError(
-                f'item {item.upper()} does not exist in collection {collection.upper()}'
-            )
+            raise ValueError(f'key={key.upper()} does not exist, (use write instead?)')
 
-        # append to existing data, keeping old records
+        ddf = self._to_internal_type(data=data)
         old_ddf = dd.read_parquet(
             item_path,
             engine='pyarrow',
@@ -197,7 +189,7 @@ class Store:
         # is this correct? should we use symmetric difference with keep=False and one more step?
         ddf = dd.concat([old_ddf, ddf]).drop_duplicates(keep='first')
         ddf.to_parquet(
-            self._get_item_path(collection=collection, item=item, create=True),
+            self._get_item_path(key=key, create=True),
             engine='pyarrow',
             compression='snappy',
             write_index=True,
@@ -206,8 +198,7 @@ class Store:
     @overload
     def query(
         self,
-        collection: str,
-        item: str,
+        key: str,
         *,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -218,8 +209,7 @@ class Store:
     @overload
     def query(
         self,
-        collection: str,
-        item: str,
+        key: str,
         *,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -229,19 +219,16 @@ class Store:
 
     def query(
         self,
-        collection: str,
-        item: str,
+        key: str,
         *,
         start: datetime | None = None,
         end: datetime | None = None,
         raw_ddf: bool = False,
     ) -> pd.DataFrame | dd.DataFrame:
 
-        item_path = self._get_item_path(collection=collection, item=item, create=False)
+        item_path = self._get_item_path(key=key, create=False)
         if not item_path.exists():
-            raise ValueError(
-                f'item {item.upper()} does not exist in collection {collection.upper()}'
-            )
+            raise ValueError(f'key={key.upper()} does not exist')
 
         if start is None:
             start = datetime(1678, 1, 1)  # lowest possible year supported by pandas
