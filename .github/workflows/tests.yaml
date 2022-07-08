@@ -19,12 +19,11 @@ jobs:
     name: run tests for oakstore
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v4
-        id: setup-python
+      - uses: actions/checkout@v3
+      - name: setup python 3.10
+        uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-          cache: 'pip'
 
       - name: install dependencies
         run: pip install -e . -r requirements-dev.txt
