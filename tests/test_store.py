@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 from oakstore import Store
-from oakstore.store import _DEFAULT_COLUMN_SCHEMA
-from oakstore.store import _DEFAULT_INDEX_NAME
-from oakstore.store import _ITEMS_DIR
-from oakstore.store import _MetaData
+from oakstore.store import _DEFAULT_COLUMN_SCHEMA  # type: ignore
+from oakstore.store import _DEFAULT_INDEX_NAME  # type: ignore
+from oakstore.store import _ITEMS_DIR  # type: ignore
+from oakstore.store import _MetaData  # type: ignore
 from oakstore.store import ItemKeyError
 from testing.yfinance import get_msft
 

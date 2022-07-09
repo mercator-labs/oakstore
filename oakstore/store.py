@@ -1,49 +1,35 @@
 from __future__ import annotations
 
 import logging
-import os
-import pickle
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import cast
-from typing import Literal
-from typing import NamedTuple
-from typing import overload
+from types import TracebackType
 
 import dask.dataframe as dd
 import pandas as pd
 
+from oakstore.excpetions import ItemKeyError
+from oakstore.excpetions import SchemaError
+
 logger = logging.getLogger('oakstore')
 
-_DEFAULT_INDEX_NAME = 'DATE'
-_DEFAULT_COLUMN_SCHEMA = {
-    'OPEN': float,
-    'HIGH': float,
-    'LOW': float,
-    'CLOSE': float,
-    'VOLUME': int,
-}
 _DEFAULT_CHUNK_SIZE = 1_000_000
 _KEY_REGEX = re.compile(r'^[-a-zA-Z0-9_.]+\Z')
-_ITEMS_DIR = 'items'
+
+_DEFAULT_SCHEMA = pd.DataFrame(
+    columns=['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME'],
+    dtype=[float, float, float, float, int],
+    index=pd.DatetimeIndex(name='DATE'),
+)
 
 
-class _MetaData(NamedTuple):
-    column_schema: dict[str, type]
-    index_name: str
-
-
-class OakStoreError(Exception):
-    ...
-
-
-class SchemaError(OakStoreError):
-    ...
-
-
-class ItemKeyError(OakStoreError):
-    ...
+def _schema_valid(schema: pd.DataFrame) -> bool:
+    if len(schema) != 0:
+        return False
+    if not isinstance(schema.index, pd.DatetimeIndex):
+        return False
+    return True
 
 
 class _Item:
@@ -74,58 +60,26 @@ class _Item:
 class Store:
     _base_path: Path
     _items_path: Path
-    _metadata: _MetaData
-    _metadata_path: Path
+    _schema: pd.DataFrame
 
     def __init__(
         self,
         base_path: Path | str = './data',
-        cols: dict[str, type] | None = None,
-        index: str | None = None,
+        schema: pd.DataFrame | None = None,
     ) -> None:
-        # TODO handle cloud storage
         if isinstance(base_path, str):
             base_path = Path(base_path)
         self._base_path = base_path
         if not self._base_path.exists():
             self._base_path.mkdir(parents=True)
 
-        self._items_path = self._base_path / _ITEMS_DIR
-        if not self._items_path.exists():
-            self._items_path.mkdir(parents=True)
+        if schema is not None:
+            if not _schema_valid(schema):
+                raise SchemaError('schema is not valid')
 
-        if not (cols is None and index is None):
-            if cols is None:
-                cols = _DEFAULT_COLUMN_SCHEMA
-            if index is None:
-                index = _DEFAULT_INDEX_NAME
-            _new_metadata = _MetaData(
-                column_schema=cols,
-                index_name=index,
-            )
-        else:
-            _new_metadata = None
-
-        self._metadata_path = self._base_path / 'metadata.pkl'
-        if self._metadata_path.exists():
-            with open(self._metadata_path, 'rb') as f:
-                loaded_metadata = pickle.load(f)
-            if _new_metadata is not None and loaded_metadata != _new_metadata:
-                raise SchemaError(
-                    f'loaded metadata {loaded_metadata!r} does not match '
-                    f'provided metadata {_new_metadata!r}'
-                )
-            self._metadata = loaded_metadata
-
-        else:
-            if _new_metadata is None:
-                _new_metadata = _MetaData(
-                    column_schema=_DEFAULT_COLUMN_SCHEMA,
-                    index_name=_DEFAULT_INDEX_NAME,
-                )
-            self._metadata = _new_metadata
-            with open(self._metadata_path, 'wb') as f:
-                pickle.dump(self._metadata, f)
+        if schema is None:
+            schema = _DEFAULT_SCHEMA
+        self._schema = schema
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}(base_path={self._base_path!r})'
@@ -138,38 +92,26 @@ class Store:
             return
         self._write(key=key, data=data)
 
+    def __enter__(self) -> Store:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        pass
+
     def _to_internal_type(self, *, data: pd.DataFrame) -> dd.DataFrame:
-        def _schema_error() -> SchemaError:
-            return SchemaError('data does not match store schema')
-
-        data_cols_u = [c.upper() for c in data.columns.to_list()]
-        schema_cols_u = [c.upper() for c in self._metadata.column_schema.keys()]
-
-        if not all(c in data_cols_u for c in schema_cols_u):
-            raise _schema_error()
-
-        # create copy to not mutate original data
-        data = data.copy()
-
-        drop_list = [
-            c for c in data.columns.to_list() if c.upper() not in schema_cols_u
-        ]
-        data.drop(columns=drop_list, inplace=True)
-
-        rename_map = {c: c.upper() for c in data.columns.to_list()}
-        data.rename(columns=rename_map, inplace=True)
-
-        # rename columns and index
-        data.index.name = self._metadata.index_name
-
-        try:
-            # change col types
-            for col, tp in self._metadata.column_schema.items():
-                data.astype({col: tp}, copy=False)
-            # change index type
-            data.index = pd.to_datetime(data.index)
-        except (ValueError, TypeError):
-            raise _schema_error()
+        if not isinstance(data.index, pd.DatetimeIndex):
+            raise SchemaError('index is not a datetime index')
+        if data.columns != self._schema.columns:
+            raise SchemaError('columns of data do not match schema')
+        if data.dtypes != self._schema.dtypes:
+            raise SchemaError('dtypes of data do not match schema')
+        if data.index.name != self._schema.index.name:
+            raise SchemaError('index name of data does not match schema')
 
         return dd.from_pandas(data, sort=True, chunksize=_DEFAULT_CHUNK_SIZE)
 
@@ -253,8 +195,8 @@ class Store:
             end = datetime.now()
 
         parquet_filters = [
-            (self._metadata.index_name, '>=', start),
-            (self._metadata.index_name, '<=', end),
+            (self._schema.index.name, '>=', start),
+            (self._schema.index.name, '<=', end),
         ]
 
         ddf = dd.read_parquet(
