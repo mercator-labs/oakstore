@@ -34,16 +34,13 @@ class _MetaData(NamedTuple):
     index_name: str
 
 
-class OakStoreError(Exception):
-    ...
+class OakStoreError(Exception): ...
 
 
-class SchemaError(OakStoreError):
-    ...
+class SchemaError(OakStoreError): ...
 
 
-class ItemKeyError(OakStoreError):
-    ...
+class ItemKeyError(OakStoreError): ...
 
 
 class _Item:
